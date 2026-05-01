@@ -81,7 +81,6 @@ VITE_GOOGLE_MAPS_API_KEY=AIza...
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000)
 
 ---
 
