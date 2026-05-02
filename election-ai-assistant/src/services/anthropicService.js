@@ -1,61 +1,40 @@
 /**
- * anthropicService.js
- * Handles all communication with the Anthropic Claude API.
- * Supports streaming, context management, and dynamic system prompts.
+ * aiService.js
+ * Handles AI communication using Google Gemini API (free).
  * Falls back to demo mode if API key is missing.
  */
 
-const API_URL = 'https://api.anthropic.com/v1/messages'
-const MODEL = 'claude-sonnet-4-20250514'
-const MAX_TOKENS = 1024
+const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent'
 
-// Demo responses for when no API key is configured
+// ─── Demo responses ───────────────────────────────────────────────────────────
 const DEMO_RESPONSES = {
-  default: `I'm running in **demo mode** since no API key is configured yet.\n\nTo activate full AI responses, add your Anthropic API key to your \`.env\` file as \`VITE_ANTHROPIC_API_KEY=sk-ant-...\` and redeploy.\n\nGet a free key at [console.anthropic.com](https://console.anthropic.com)\n\nIn the meantime — elections are the foundation of democracy, allowing citizens to choose representatives and hold them accountable. Ask me anything and I'll give you a helpful answer even in demo mode!`,
-  register: `**Voter Registration** is your first step!\n\n- Check eligibility: citizen, 18+, resident\n- Gather documents: photo ID and proof of address\n- Register online at your official electoral website\n- Verify your registration before election day\n\nDeadlines vary by country — some allow same-day registration!`,
-  vote: `**How to Vote on Election Day:**\n\n1. Find your assigned polling station\n2. Bring valid photo ID\n3. Check in with the electoral officer\n4. Enter the private voting booth\n5. Mark your ballot carefully\n6. Submit in the sealed ballot box\n\nPolls typically open 7am–10pm. Mail voting is available in many countries!`,
-  count: `**How Votes Are Counted:**\n\n1. Ballot boxes sealed and transported under guard\n2. Ballots sorted and verified for validity\n3. Every valid vote counted and recorded\n4. Results from each station tallied\n5. Electoral commission certifies the final result\n\nIndependent monitors observe the entire process for transparency.`,
-  system: `**Electoral Systems Explained:**\n\n- **First Past The Post (FPTP)**: Candidate with most votes wins, used in USA and UK\n- **Proportional Representation**: Seats allocated based on vote share, common in Europe\n- **Ranked Choice Voting**: Voters rank candidates by preference\n- **Two-Round System**: If no majority in round 1, top two candidates face a runoff\n\nEach system has different effects on representation and governance!`
+  default: `I'm running in **demo mode**. Add your Gemini API key to activate full AI responses!\n\nElections are the foundation of democracy — they allow citizens to choose their representatives. The process involves voter registration, campaigning, election day voting, and vote counting.`,
+  register: `**Voter Registration steps:**\n\n- Check eligibility: citizen, 18+, resident\n- Gather documents: photo ID and proof of address\n- Register online at your official electoral website\n- Verify your registration before election day`,
+  vote: `**How to Vote:**\n\n1. Find your polling station\n2. Bring valid photo ID\n3. Check in with the electoral officer\n4. Mark your ballot privately\n5. Submit in the sealed ballot box`,
+  count: `**How Votes Are Counted:**\n\n1. Ballot boxes sealed after polls close\n2. Ballots sorted and verified\n3. Every valid vote counted\n4. Results certified by electoral commission`,
 }
 
 function getDemoResponse(message) {
   const lower = message.toLowerCase()
   if (lower.includes('register')) return DEMO_RESPONSES.register
-  if (lower.includes('vote') || lower.includes('voting') || lower.includes('election day') || lower.includes('poll')) return DEMO_RESPONSES.vote
-  if (lower.includes('count') || lower.includes('result') || lower.includes('tally')) return DEMO_RESPONSES.count
-  if (lower.includes('system') || lower.includes('proportional') || lower.includes('fptp') || lower.includes('ranked')) return DEMO_RESPONSES.system
+  if (lower.includes('vote') || lower.includes('voting')) return DEMO_RESPONSES.vote
+  if (lower.includes('count') || lower.includes('result')) return DEMO_RESPONSES.count
   return DEMO_RESPONSES.default
 }
 
+// ─── System prompt ────────────────────────────────────────────────────────────
 export function buildSystemPrompt({ userLocation, calendarConnected, userName }) {
-  const locationCtx = userLocation
-    ? `The user is located near: ${userLocation}. When relevant, tailor answers to their local election context.`
-    : 'The user has not shared their location.'
-  const calendarCtx = calendarConnected
-    ? 'The user has connected Google Calendar. When they mention wanting reminders, confirm you can add them.'
-    : 'Google Calendar is not connected yet.'
-  const nameCtx = userName ? `The user's name is ${userName}.` : ''
+  return `You are ElectionAI, a smart, friendly, non-partisan election assistant helping users understand elections, voting, and democracy.
 
-  return `You are ElectionAI, a smart, friendly, and non-partisan election assistant helping users understand elections, voting, civic participation, and democracy.
+${userName ? `The user's name is ${userName}.` : ''}
+${userLocation ? `User location: ${userLocation}. Tailor answers to their local context.` : ''}
+${calendarConnected ? 'Google Calendar is connected — offer to add reminders.' : ''}
 
-${nameCtx}
-${locationCtx}
-${calendarCtx}
-
-## Capabilities:
-- Explain voter registration, election timelines, polling, vote counting, electoral systems
-- Answer questions about specific countries' election systems
-- Help users find local polling information
-- Suggest Google Calendar reminders for election dates
-- Recommend YouTube resources about civic education
-
-## Rules:
-- Be concise: 2-4 short paragraphs unless more detail is requested
-- Be strictly non-partisan: never favor any party or candidate
+Rules:
+- Be concise: 2-4 short paragraphs
+- Be strictly non-partisan
 - Use plain language
-- When recommending a Google action: ACTION:[CALENDAR] label | ACTION:[MAPS] label | ACTION:[YOUTUBE] Search: query
-
-Always be factual. If unsure, say so.`
+- When a Google action is useful: ACTION:[CALENDAR] label | ACTION:[MAPS] label | ACTION:[YOUTUBE] Search: query`
 }
 
 export function detectActions(text) {
@@ -73,12 +52,13 @@ export function stripActions(text) {
 }
 
 export function isApiKeyConfigured() {
-  const key = import.meta.env.VITE_ANTHROPIC_API_KEY
-  return !!(key && key !== 'your_anthropic_api_key_here' && key.trim() !== '')
+  const key = import.meta.env.VITE_GEMINI_API_KEY
+  return !!(key && key.trim() !== '' && key !== 'your_gemini_api_key_here')
 }
 
+// ─── Main send function ───────────────────────────────────────────────────────
 export async function sendMessage({ messages, systemPrompt, onChunk, signal }) {
-  const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY
 
   if (!isApiKeyConfigured()) {
     const lastUserMsg = messages.filter(m => m.role === 'user').pop()?.content || ''
@@ -96,51 +76,47 @@ export async function sendMessage({ messages, systemPrompt, onChunk, signal }) {
     return demoText
   }
 
-  const response = await fetch(API_URL, {
+  // Build Gemini request format
+  const geminiMessages = messages.map(m => ({
+    role: m.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: m.content }],
+  }))
+
+  const body = {
+    system_instruction: { parts: [{ text: systemPrompt }] },
+    contents: geminiMessages,
+    generationConfig: {
+      maxOutputTokens: 1024,
+      temperature: 0.7,
+    },
+  }
+
+  const res = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
     method: 'POST',
     signal,
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: MAX_TOKENS,
-      system: systemPrompt,
-      messages,
-      stream: !!onChunk,
-    }),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   })
 
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({}))
-    throw new Error(err?.error?.message || `API error ${response.status}`)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err?.error?.message || `Gemini API error ${res.status}`)
   }
 
-  if (onChunk) {
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let fullText = ''
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      const chunk = decoder.decode(value)
-      const lines = chunk.split('\n').filter(l => l.startsWith('data: '))
-      for (const line of lines) {
-        try {
-          const data = JSON.parse(line.slice(6))
-          if (data.type === 'content_block_delta' && data.delta?.text) {
-            fullText += data.delta.text
-            onChunk(data.delta.text, fullText)
-          }
-        } catch (_) {}
-      }
+  const data = await res.json()
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+
+  // Simulate streaming for Gemini (non-streaming endpoint)
+  if (onChunk && text) {
+    const words = text.split(' ')
+    let accumulated = ''
+    for (const word of words) {
+      if (signal?.aborted) break
+      accumulated += (accumulated ? ' ' : '') + word
+      onChunk(word + ' ', accumulated)
+      await new Promise(r => setTimeout(r, 15))
     }
-    return fullText
   }
 
-  const data = await response.json()
-  return data.content?.find(b => b.type === 'text')?.text ?? ''
+  return text
 }
